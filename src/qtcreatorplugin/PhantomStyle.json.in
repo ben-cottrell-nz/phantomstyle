@@ -1,0 +1,14 @@
+{
+    "Id" : "phantomstyle",
+    "Name" : "PhantomStyle",
+    "Version" : "0.0.1",
+    "CompatVersion" : "0.0.1",
+    "Vendor" : "Cristian Adam",
+    "VendorId" : "cristianadam",
+    "Copyright" : "(C) Cristian Adam",
+    "License" : "GNU LGPL",
+    "Description" : "PhantomStyle QStyle for Qt Creator",
+    "Url" : "https://github.com/cristianadam/phantomstyle",
+    "DocumentationUrl" : "",
+    ${IDE_PLUGIN_DEPENDENCIES}
+}
