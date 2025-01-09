@@ -40,6 +40,12 @@ jobs:
             platform: linux_x64,
             cc: "gcc", cxx: "g++"
           }
+        # - {
+        #     name: "Ubuntu Latest GCC Arm64", artifact: "Linux-arm64",
+        #     os: ubuntu-latest,
+        #     platform: linux_arm64,
+        #     cc: "aarch64-linux-gnu-gcc", cxx: "aarch64-linux-gnu-g++"
+        #   }
         - {
             name: "macOS Latest Clang", artifact: "macOS-universal",
             os: macos-latest,
@@ -108,6 +114,11 @@ jobs:
             set(qt_package_arch_suffix "linux_gcc_64")
             set(qt_dir_prefix "${qt_version}/gcc_64")
             set(qt_package_suffix "-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64")
+          elseif (platform STREQUAL "linux_arm64")
+            set(url_os "linux_arm64")
+            set(qt_package_arch_suffix "linux_gcc_arm64")
+            set(qt_dir_prefix "${qt_version}/gcc_arm64")
+            set(qt_package_suffix "-Linux-Ubuntu_24_04-GCC-Linux-Ubuntu_24_04-AARCH64")
           elseif (platform STREQUAL "mac_x64")
             set(url_os "mac_x64")
             set(qt_package_arch_suffix "clang_64")
@@ -155,7 +166,7 @@ jobs:
           endforeach()
 
           # uic depends on libicu*.so
-          if ("${{ runner.os }}" STREQUAL "Linux")
+          if (platform STREQUAL "linux_x64")
             if (qt_version VERSION_LESS "6.7.0")
               set(uic_suffix "Rhel7.2-x64")
             else()
@@ -176,10 +187,28 @@ jobs:
         elseif ("${{ matrix.config.platform }}" STREQUAL "windows_arm64")
           download_qt(windows_x64 FALSE)
           download_qt(windows_arm64 TRUE)
-        elseif ("${{ runner.os }}" STREQUAL "Linux")
+        elseif ("${{ matrix.config.platform }}" STREQUAL "linux_x64")
           download_qt(linux_x64 TRUE)
+        elseif ("${{ matrix.config.platform }}" STREQUAL "linux_arm64")
+          download_qt(linux_x64 FALSE)
+          download_qt(linux_arm64 TRUE)
         elseif ("${{ runner.os }}" STREQUAL "macOS")
           download_qt(mac_x64 TRUE)
+        endif()
+
+    - name: Install system libs
+      shell: cmake -P {0}
+      run: |
+        if ("${{ matrix.config.platform }}" STREQUAL "linux_arm64")
+          execute_process(COMMAND sudo apt-get update)
+          execute_process(
+            COMMAND
+              sudo apt-get install -y crossbuild-essential-arm64 libgl1-mesa-dev
+            RESULT_VARIABLE result
+          )
+          if (NOT result EQUAL 0)
+            message(FATAL_ERROR "Failed to install dependencies")
+          endif()
         endif()
 
     - name: Download Qt Creator
@@ -232,6 +261,9 @@ jobs:
         if ("${{ matrix.config.platform }}" STREQUAL "windows_arm64")
           file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qt6/$ENV{QT_VERSION}/msvc_64" qt_host_dir)
           set(additional_config "--add-config=-DQT_HOST_PATH=${qt_host_dir}")
+        elseif ("${{ matrix.config.platform }}" STREQUAL "linux_arm64")
+          file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qt6/$ENV{QT_VERSION}/gcc_64" qt_host_dir)
+          set(additional_config "--add-config=-DQT_HOST_PATH=${qt_host_dir}")
         endif()
 
         execute_process(
@@ -268,50 +300,51 @@ jobs:
         name: ${{ env.PLUGIN_NAME }}-origin-json
         path: ./build/build/${{ env.PLUGIN_NAME }}.json
 
-  update_json:
-    if: contains(github.ref, 'tags/v')
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Download the JSON file
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ env.PLUGIN_NAME }}-origin-json
-        path: ./${{ env.PLUGIN_NAME }}-origin
-
-    - name: Store Release upload_url
-      run: |
-        RELEASE_HTML_URL=$(echo "${{github.event.repository.html_url}}/releases/download/v${{ needs.build.outputs.tag }}")
-        echo "RELEASE_HTML_URL=${RELEASE_HTML_URL}" >> $GITHUB_ENV
-
-    - name: Run the Node.js script to update JSON
-      env:
-        QT_TOKEN: ${{ secrets.TOKEN }}
-        API_URL: ${{ secrets.API_URL }}
-      run: |
-        node .github/scripts/registerPlugin.js         ${{ env.RELEASE_HTML_URL }} ${{ env.PLUGIN_NAME }}         ${{ env.QT_CREATOR_VERSION }} ${{ env.QT_CREATOR_VERSION_INTERNAL }}         ${{ env.QT_TOKEN }} ${{ env.API_URL }}
-
-    - name: Delete previous json artifacts
-      uses: geekyeggo/delete-artifact@v5
-      with:
-        name: ${{ env.PLUGIN_NAME }}*-json
-
-    - name: Upload the modified JSON file as an artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: plugin-json
-        path: .github/scripts/${{ env.PLUGIN_NAME }}.json
+  # update_json:
+  #   if: contains(github.ref, 'tags/v')
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - uses: actions/setup-node@v4
+  #     with:
+  #       node-version: '20'
+  #
+  #   - name: Download the JSON file
+  #     uses: actions/download-artifact@v4
+  #     with:
+  #       name: ${{ env.PLUGIN_NAME }}-origin-json
+  #       path: ./${{ env.PLUGIN_NAME }}-origin
+  #
+  #   - name: Store Release upload_url
+  #     run: |
+  #       RELEASE_HTML_URL=$(echo "${{github.event.repository.html_url}}/releases/download/v${{ needs.build.outputs.tag }}")
+  #       echo "RELEASE_HTML_URL=${RELEASE_HTML_URL}" >> $GITHUB_ENV
+  #
+  #   - name: Run the Node.js script to update JSON
+  #     env:
+  #       QT_TOKEN: ${{ secrets.TOKEN }}
+  #       API_URL: ${{ secrets.API_URL }}
+  #     run: |
+  #       node .github/scripts/registerPlugin.js         ${{ env.RELEASE_HTML_URL }} ${{ env.PLUGIN_NAME }}         ${{ env.QT_CREATOR_VERSION }} ${{ env.QT_CREATOR_VERSION_INTERNAL }}         ${{ env.QT_TOKEN }} ${{ env.API_URL }}
+  #
+  #   - name: Delete previous json artifacts
+  #     uses: geekyeggo/delete-artifact@v5
+  #     with:
+  #       name: ${{ env.PLUGIN_NAME }}*-json
+  #
+  #   - name: Upload the modified JSON file as an artifact
+  #     uses: actions/upload-artifact@v4
+  #     with:
+  #       name: plugin-json
+  #       path: .github/scripts/${{ env.PLUGIN_NAME }}.json
 
   release:
     if: contains(github.ref, 'tags/v')
     runs-on: ubuntu-latest
-    needs: [build, update_json]
+#    needs: [build, update_json]
+    needs: [build]
 
     steps:
     - name: Download artifacts
