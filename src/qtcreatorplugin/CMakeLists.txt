@@ -30,6 +30,7 @@ if(WITH_TESTS)
 endif()
 
 add_qtc_plugin(PhantomStyle
+  LONG_DESCRIPTION_MD ../../README.md
   PLUGIN_DEPENDS
     QtCreator::Core
   DEPENDS
