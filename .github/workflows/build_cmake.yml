@@ -28,6 +28,13 @@ jobs:
             environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
           }
         - {
+            name: "Windows Latest MSVC Arm64", artifact: "Windows-arm64",
+            os: windows-latest,
+            platform: windows_arm64,
+            cc: "cl", cxx: "cl",
+            environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvarsamd64_arm64.bat",
+          }
+        - {
             name: "Ubuntu Latest GCC", artifact: "Linux-x64",
             os: ubuntu-latest,
             platform: linux_x64,
@@ -84,80 +91,103 @@ jobs:
       run: |
         set(qt_version "$ENV{QT_VERSION}")
 
-        string(REPLACE "." "" qt_version_dotless "${qt_version}")
-        if ("${{ runner.os }}" STREQUAL "Windows")
-          set(url_os "windows_x86")
-          set(qt_package_arch_suffix "win64_msvc2022_64")
-          set(qt_dir_prefix "${qt_version}/msvc_64")
-          set(qt_package_suffix "-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64")
-        elseif ("${{ runner.os }}" STREQUAL "Linux")
-          set(url_os "linux_x64")
-          set(qt_package_arch_suffix "linux_gcc_64")
-          set(qt_dir_prefix "${qt_version}/gcc_64")
-          set(qt_package_suffix "-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64")
-        elseif ("${{ runner.os }}" STREQUAL "macOS")
-          set(url_os "mac_x64")
-          set(qt_package_arch_suffix "clang_64")
-          set(qt_dir_prefix "${qt_version}/macos")
-          set(qt_package_suffix "-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64")
-        endif()
+        function(download_qt platform export_qt_dir)
+          string(REPLACE "." "" qt_version_dotless "${qt_version}")
+          if (platform STREQUAL "windows_x64")
+            set(url_os "windows_x86")
+            set(qt_package_arch_suffix "win64_msvc2022_64")
+            set(qt_dir_prefix "${qt_version}/msvc_64")
+            set(qt_package_suffix "-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64")
+          elseif (platform STREQUAL "windows_arm64")
+            set(url_os "windows_x86")
+            set(qt_package_arch_suffix "win64_msvc2022_arm64_cross_compiled")
+            set(qt_dir_prefix "${qt_version}/msvc_arm64")
+            set(qt_package_suffix "-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-ARM64")
+          elseif (platform STREQUAL "linux_x64")
+            set(url_os "linux_x64")
+            set(qt_package_arch_suffix "linux_gcc_64")
+            set(qt_dir_prefix "${qt_version}/gcc_64")
+            set(qt_package_suffix "-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64")
+          elseif (platform STREQUAL "mac_x64")
+            set(url_os "mac_x64")
+            set(qt_package_arch_suffix "clang_64")
+            set(qt_dir_prefix "${qt_version}/macos")
+            set(qt_package_suffix "-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64")
+          endif()
 
-        set(qt_base_url "https://download.qt.io/online/qtsdkrepository/${url_os}/desktop/qt6_${qt_version_dotless}/qt6_${qt_version_dotless}")
-        file(DOWNLOAD "${qt_base_url}/Updates.xml" ./Updates.xml SHOW_PROGRESS)
+          set(qt_base_url "https://download.qt.io/online/qtsdkrepository/${url_os}/desktop/qt6_${qt_version_dotless}/qt6_${qt_version_dotless}")
+          file(DOWNLOAD "${qt_base_url}/Updates.xml" ./Updates.xml SHOW_PROGRESS)
 
-        file(READ ./Updates.xml updates_xml)
-        string(REGEX MATCH "<Name>qt.qt6.*<Version>([0-9+-.]+)</Version>" updates_xml_output "${updates_xml}")
-        set(qt_package_version ${CMAKE_MATCH_1})
+          file(READ ./Updates.xml updates_xml)
+          string(REGEX MATCH "<Name>qt.qt6.*<Version>([0-9+-.]+)</Version>" updates_xml_output "${updates_xml}")
+          set(qt_package_version ${CMAKE_MATCH_1})
 
-        # Save the path for other steps
-        file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qt6/${qt_dir_prefix}" qt_dir)
-        file(APPEND "$ENV{GITHUB_OUTPUT}" "qt_dir=${qt_dir}")
+          # Save the path for other steps
+          file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qt6/${qt_dir_prefix}" qt_dir)
 
-        message("Downloading Qt to ${qt_dir}")
-        function(downloadAndExtract url archive subdir)
-          file(MAKE_DIRECTORY "${qt_dir}/${subdir}")
-          message("Downloading ${url}")
-          message("... extracting to ${qt_dir}/${subdir}")
-          file(DOWNLOAD "${url}" "$ENV{GITHUB_WORKSPACE}/${archive}" SHOW_PROGRESS)
-          execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf "$ENV{GITHUB_WORKSPACE}/${archive}" WORKING_DIRECTORY "${qt_dir}/${subdir}")
+          if (export_qt_dir)
+            file(APPEND "$ENV{GITHUB_OUTPUT}" "qt_dir=${qt_dir}")
+          endif()
+
+          message("Downloading Qt to ${qt_dir}")
+          function(downloadAndExtract url archive subdir)
+            file(MAKE_DIRECTORY "${qt_dir}/${subdir}")
+            message("Downloading ${url}")
+            message("... extracting to ${qt_dir}/${subdir}")
+            file(DOWNLOAD "${url}" "$ENV{GITHUB_WORKSPACE}/${archive}" SHOW_PROGRESS)
+            execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf "$ENV{GITHUB_WORKSPACE}/${archive}" WORKING_DIRECTORY "${qt_dir}/${subdir}")
+          endfunction()
+
+          foreach(package qtbase qtdeclarative)
+            downloadAndExtract(
+              "${qt_base_url}/qt.qt6.${qt_version_dotless}.${qt_package_arch_suffix}/${qt_package_version}${package}${qt_package_suffix}.7z"
+              ${package}.7z
+              ""
+            )
+          endforeach()
+
+          foreach(package qt5compat qtshadertools)
+            downloadAndExtract(
+              "${qt_base_url}/qt.qt6.${qt_version_dotless}.addons.${package}.${qt_package_arch_suffix}/${qt_package_version}${package}${qt_package_suffix}.7z"
+              ${package}.7z
+              ""
+            )
+          endforeach()
+
+          # uic depends on libicu*.so
+          if ("${{ runner.os }}" STREQUAL "Linux")
+            if (qt_version VERSION_LESS "6.7.0")
+              set(uic_suffix "Rhel7.2-x64")
+            else()
+              set(uic_suffix "Rhel8.6-x86_64")
+            endif()
+            downloadAndExtract(
+              "${qt_base_url}/qt.qt6.${qt_version_dotless}.${qt_package_arch_suffix}/${qt_package_version}icu-linux-${uic_suffix}.7z"
+              icu.7z
+              "lib"
+            )
+          endif()
+
+          execute_process(COMMAND ${qt_dir}/bin/qmake -query)
         endfunction()
 
-        foreach(package qtbase qtdeclarative)
-          downloadAndExtract(
-            "${qt_base_url}/qt.qt6.${qt_version_dotless}.${qt_package_arch_suffix}/${qt_package_version}${package}${qt_package_suffix}.7z"
-            ${package}.7z
-            ""
-          )
-        endforeach()
-
-        foreach(package qt5compat qtshadertools)
-          downloadAndExtract(
-            "${qt_base_url}/qt.qt6.${qt_version_dotless}.addons.${package}.${qt_package_arch_suffix}/${qt_package_version}${package}${qt_package_suffix}.7z"
-            ${package}.7z
-            ""
-          )
-        endforeach()
-
-        # uic depends on libicu*.so
-        if ("${{ runner.os }}" STREQUAL "Linux")
-          if (qt_version VERSION_LESS "6.7.0")
-            set(uic_suffix "Rhel7.2-x64")
-          else()
-            set(uic_suffix "Rhel8.6-x86_64")
-          endif()
-          downloadAndExtract(
-            "${qt_base_url}/qt.qt6.${qt_version_dotless}.${qt_package_arch_suffix}/${qt_package_version}icu-linux-${uic_suffix}.7z"
-            icu.7z
-            "lib"
-          )
+        if ("${{ matrix.config.platform }}" STREQUAL "windows_x64")
+          download_qt(windows_x64 TRUE)
+        elseif ("${{ matrix.config.platform }}" STREQUAL "windows_arm64")
+          download_qt(windows_x64 FALSE)
+          download_qt(windows_arm64 TRUE)
+        elseif ("${{ runner.os }}" STREQUAL "Linux")
+          download_qt(linux_x64 TRUE)
+        elseif ("${{ runner.os }}" STREQUAL "macOS")
+          download_qt(mac_x64 TRUE)
         endif()
 
-        execute_process(COMMAND ${qt_dir}/bin/qmake -query)
     - name: Download Qt Creator
-      uses: qt-creator/install-dev-package@v1.2
+      uses: qt-creator/install-dev-package@v1.6
       with:
         version: ${{ env.QT_CREATOR_VERSION }}
         unzip-to: 'qtcreator'
+        platform: ${{ matrix.config.platform }}
 
     - name: Extract Qt Creator
       id: qt_creator
@@ -199,6 +229,11 @@ jobs:
           endif()
         endforeach()
 
+        if ("${{ matrix.config.platform }}" STREQUAL "windows_arm64")
+          file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qt6/$ENV{QT_VERSION}/msvc_64" qt_host_dir)
+          set(additional_config "--add-config=-DQT_HOST_PATH=${qt_host_dir}")
+        endif()
+
         execute_process(
           COMMAND python
             -u
@@ -209,6 +244,7 @@ jobs:
             --qt-path "${{ steps.qt.outputs.qt_dir }}"
             --qtc-path "${{ steps.qt_creator.outputs.qtc_dir }}"
             --output-path "$ENV{GITHUB_WORKSPACE}"
+            ${additional_config}
           RESULT_VARIABLE result
         )
         if (NOT result EQUAL 0)
