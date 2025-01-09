@@ -3,6 +3,7 @@
 
 #include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
+#include <coreplugin/manhattanstyle.h>
 
 #include <extensionsystem/iplugin.h>
 
@@ -24,7 +25,10 @@ public:
   }
 
   void initialize() final {
-    QApplication::setStyle(new PhantomStyle);
+    auto manhattanStyle = new ManhattanStyle(QApplication::style()->name());
+    manhattanStyle->setBaseStyle(new PhantomStyle);
+
+    QApplication::setStyle(manhattanStyle);
   }
 
   void extensionsInitialized() final {
